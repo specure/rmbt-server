@@ -467,7 +467,7 @@ void accept_loop()
             continue;
         }
 
-        syslog_and_print(LOG_DEBUG, "Wait until queue not full anymore");
+        syslog_and_print(LOG_DEBUG, "accept_loop - Wait until queue not full anymore.");
         pthread_mutex_lock(&signals_mutex);
 
         /* wait until queue not full anymore */
@@ -475,21 +475,23 @@ void accept_loop()
             pthread_cond_wait(&accept_queue_not_full, &signals_mutex);
 
         pthread_mutex_unlock(&signals_mutex);
+        syslog_and_print(LOG_DEBUG, "accept_loop - Queue is not full.");
 
         if (do_shutdown)
             return;
 
         /* lock only to make changes in queue */
+        syslog_and_print(LOG_DEBUG, "accept_loop - Lock queue mutex.");
         pthread_mutex_lock(&accept_queue_mutex);
-        syslog_and_print(LOG_DEBUG, "Start process queue");
+        syslog_and_print(LOG_DEBUG, "accept_loop - Start process queue.");
 
         for (i = 0; i < num_listens; i++)
         {
-            syslog_and_print(LOG_DEBUG, "Check if socket %d has event", poll_array[i].fd);
+            syslog_and_print(LOG_DEBUG, "accept_loop - Check if socket %d has event.", poll_array[i].fd);
 
             if ((poll_array[i].revents & POLLIN) != 0)
             {
-                syslog_and_print(LOG_DEBUG, "Socket %d has event. Try to get descriptor", poll_array[i].fd);
+                syslog_and_print(LOG_DEBUG, "accept_loop - Socket %d has event. Try to get descriptor.", poll_array[i].fd);
 
                 /* accept */
                 int socket_descriptor = accept(listens[i].sock, NULL, NULL);
@@ -497,30 +499,31 @@ void accept_loop()
                 /* if valid socket descriptor */
                 if (socket_descriptor >= 0)
                 {
-                    syslog_and_print(LOG_DEBUG, "Descriptor is valid. Add it to queue.");
+                    syslog_and_print(LOG_DEBUG, "accept_loop - Descriptor is valid. Add it to queue.");
                     /* add socket descriptor to queue */
                     int idx = (accept_queue_start + accept_queue_size++) % ACCEPT_QUEUE_MAX_SIZE;
                     accept_queue[idx] = socket_descriptor;
                     accept_queue_listen_idx[idx] = i;
                 }
                 else
-                    syslog_and_print(LOG_DEBUG, "Invalid descriptor");
+                    syslog_and_print(LOG_DEBUG, "accept_loop - Invalid descriptor");
             }
 
             if (accept_queue_size == ACCEPT_QUEUE_MAX_SIZE)
             {
-                syslog_and_print(LOG_DEBUG, "Queue is full. Break from cycle.");
+                syslog_and_print(LOG_DEBUG, "accept_loop - Queue is full. Break from cycle.");
                 break;
             }
         }
 
-        syslog_and_print(LOG_DEBUG, "Unlock mutex if queue is not empty");
+        syslog_and_print(LOG_DEBUG, "accept_loop - Unlock mutex if queue is not empty.");
         /* if queue was empty, signal a thread to start looking for the socket descriptor */
-        if (accept_queue_size > 0)
+        if (!do_shutdown && accept_queue_size > 0)
             pthread_cond_signal(&accept_queue_not_empty);
 
         /* unlock */
         pthread_mutex_unlock(&accept_queue_mutex);
+        syslog_and_print(LOG_DEBUG, "accept_loop - Unlock queue mutex. Finish process queue.");
     }
 }
 
@@ -1148,6 +1151,7 @@ static void *worker_thread_main(void *arg)
         if (do_shutdown)
             return NULL;
 
+        syslog_and_print(LOG_DEBUG, "Lock queue mutex in thread %d.", thread_num);
         /* lock  only to make changes in queue */
         pthread_mutex_lock(&accept_queue_mutex);
 
@@ -1167,7 +1171,8 @@ static void *worker_thread_main(void *arg)
         
         /* unlock */
         pthread_mutex_unlock(&accept_queue_mutex);
-        
+        syslog_and_print(LOG_DEBUG, "Unlock queue mutex in thread %d.", thread_num);
+
         struct sockaddr_in6 addr;
         socklen_t addrlen = sizeof(addr);
         int r = getsockname(socket_descriptor, (struct sockaddr *) &addr, &addrlen);
